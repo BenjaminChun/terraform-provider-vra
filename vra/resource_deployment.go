@@ -21,6 +21,7 @@ import (
 	"github.com/vmware/vra-sdk-go/pkg/client/catalog_items"
 	"github.com/vmware/vra-sdk-go/pkg/client/deployment_actions"
 	"github.com/vmware/vra-sdk-go/pkg/client/deployments"
+	"github.com/vmware/vra-sdk-go/pkg/client/resource_actions"
 	"github.com/vmware/vra-sdk-go/pkg/models"
 )
 
@@ -187,6 +188,7 @@ func resourceDeployment() *schema.Resource {
 
 func resourceDeploymentCreate(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
 	log.Printf("Starting to create vra_deployment resource")
+	log.Printf("I AM HERE")
 	apiClient := m.(*Client).apiClient
 
 	blueprintID, catalogItemID, blueprintContent := "", "", ""
@@ -268,6 +270,7 @@ func resourceDeploymentCreate(ctx context.Context, d *schema.ResourceData, m int
 		}
 		d.SetId(payload[0].DeploymentID)
 		log.Printf("Finished requesting vra_deployment '%s' from catalog item", d.Get("name"))
+		log.Printf("THIS IS A TEST, printing deployment ID: %s", payload[0].DeploymentID)
 	} else {
 		blueprintVersion := ""
 		if v, ok := d.GetOk("blueprint_version"); ok {
@@ -362,6 +365,18 @@ func resourceDeploymentCreate(ctx context.Context, d *schema.ResourceData, m int
 
 	d.SetId(deploymentID.(string))
 	log.Printf("Finished to create vra_deployment resource with name %s", d.Get("name"))
+
+	// deploymentactionsparams := deployment_actions.GetDeploymentActionUsingGET2Params{}
+	// deploymentactionsparams.SetDeploymentID(payload[0].DeploymentID)
+	// apiClient.DeploymentActions.GetDeploymentActionUsingGET2()
+	// actionParams := resource_actions.GetResourceActionUsingGET5Params{
+	// 	ResourceID: "",
+	// }
+	// resourceActions, err := apiClient.ResourceActions.GetResourceActionUsingGET5()
+	// if err != nil {
+	// 	return diag.FromErr(err)
+	// }
+	// log.Printf("Printing resource actions: %s", resourceActions.String())
 
 	return resourceDeploymentRead(ctx, d, m)
 }
@@ -460,6 +475,7 @@ func resourceDeploymentRead(_ context.Context, d *schema.ResourceData, m interfa
 func resourceDeploymentUpdate(ctx context.Context, d *schema.ResourceData, m interface{}) diag.Diagnostics {
 	log.Printf("Starting to update the vra_deployment resource with name %s", d.Get("name"))
 	apiClient := m.(*Client).apiClient
+	log.Printf("IN UPDATE DEPLOYMENT")
 
 	if d.HasChange("blueprint_id") || d.HasChange("blueprint_version") || d.HasChange("blueprint_content") {
 		err := updateDeploymentWithNewBlueprint(ctx, d, m, apiClient)
@@ -859,10 +875,98 @@ func runDeploymentUpdateAction(ctx context.Context, d *schema.ResourceData, apiC
 	if err != nil {
 		return err
 	}
+	resp, err := apiClient.Deployments.GetDeploymentResourcesUsingGET2(deployments.NewGetDeploymentResourcesUsingGET2Params().WithDeploymentID(deploymentUUID))
+	if err != nil {
+		log.Printf("EXPERIENCE ERROR")
+		log.Printf(err.Error())
+	}
+	log.Printf(resp.String())
+	machineResourceID := strfmt.UUID("")
+	for _, object := range resp.Payload.Content {
+		if *object.Type == "Cloud.vSphere.Machine" {
+			log.Printf(string(object.ID))
+			machineResourceID = object.ID
+		}
+	}
+	log.Printf(machineResourceID.String()) // here is OK
 
-	updateAvailable := false
+	// todo get the resource actions avail
+
+	resourceActionsResponses, err := apiClient.ResourceActions.GetResourceActionsUsingGET5(resource_actions.NewGetResourceActionsUsingGET5Params().WithResourceID(machineResourceID))
+	log.Printf("THIS IS ME")
+	if err != nil {
+		log.Printf(err.Error())
+	}
+	log.Printf("THIS IS ME2")
+	// log.Printf(resourceActionsResponses.GetPayload().ID)
 	actionID := ""
+	for _, object := range resourceActionsResponses.Payload {
+		log.Printf(object.Name)
+		log.Printf(object.OrgID)
+		if object.Name == "customAddAdHocBackup" {
+			actionID = object.OrgID
+		}
+	}
+	log.Printf("THIS IS ME2")
+
+	// get resource action obj
+	// adHocBackup, err := apiClient.ResourceActions.GetResourceActionUsingGET5(resource_actions.NewGetResourceActionUsingGET5Params().WithActionID(actionID))
+	exampleAction := new(models.ResourceActionRequest)
+	exampleAction.ActionID = actionID
+
+	// create post req with this body
+	params := resource_actions.NewSubmitResourceActionRequestUsingPOST5Params().WithResourceID(machineResourceID).WithActionRequest(exampleAction)
+	helpmeples, err := apiClient.ResourceActions.SubmitResourceActionRequestUsingPOST5(params)
+	flag := false
+	if err != nil {
+		log.Printf(err.Error())
+	}
+	log.Printf(helpmeples.String())
+	flag = true
+	updateAvailable := false
+	log.Printf("THIS IS ME")
+	// for _, action := range resourceActionsResponses.GetPayload().Dependents {
+	// 	log.Printf("Displaying action display names")
+
+	// 	log.Printf(action)
+	// 	// if strings.Contains(strings.ToLower(action), strings.ToLower("Update")) {
+	// 	// 	if action {
+	// 	// 		log.Printf("[DEBUG] update action is available on the deployment")
+	// 	// 		updateAvailable = true
+	// 	// 		actionID = action.ID
+	// 	// 		break
+	// 	// 	}
+	// 	// 	return fmt.Errorf("noticed changes to inputs, but 'Update' action is not supported based on the current state of the deployment")
+	// 	// }
+	// }
+	// resourceactions, err := apiClient.ResourceActions.GetResourceActionsUsingGET5(resource_actions.NewGetResourceActionsUsingGET5Params().WithResourceID(machineResourceID))
+	// if err != nil {
+	// 	log.Printf(err.Error())
+	// }
+	// log.Printf(resourceactions.String())
+	// if d.HasChange("adhoc_backup") {
+	// 	log.Printf("IN ADHOC BACKUP")
+	// 	id := d.Id()
+	// 	deploymentUUID := strfmt.UUID(id)
+	// 	resp, err := apiClient.Deployments.GetDeploymentResourcesUsingGET2(deployments.NewGetDeploymentResourcesUsingGET2Params().WithDeploymentID(deploymentUUID))
+	// 	if err != nil {
+	// 		log.Printf("EXPERIENCE ERROR")
+	// 		log.Printf(err.Error())
+	// 	}
+	// 	log.Printf(resp.String())
+	// 	// resourceActions, err := apiClient.ResourceActions.GetResourceActionUsingGET5(resource_actions.NewGetResourceActionUsingGET5Params())
+	// 	// if err != nil {
+	// 	// 	log.Printf(err.Error())
+	// 	// 	return diag.FromErr(err)
+	// 	// }
+	// 	// log.Printf("Printing resource actions: %s", resourceActions.String())
+	// }
+
+	// updateAvailable := false
+	// actionID := ""
 	for _, action := range deploymentActions.Payload {
+		log.Printf("Displaying action display names")
+		log.Printf(action.DisplayName)
 		if strings.Contains(strings.ToLower(action.ID), strings.ToLower("Update")) {
 			if action.Valid {
 				log.Printf("[DEBUG] update action is available on the deployment")
@@ -938,9 +1042,11 @@ func runDeploymentUpdateAction(ctx context.Context, d *schema.ResourceData, apiC
 	}
 
 	reason := "Updated deployment inputs from vRA provider for Terraform."
-	err = runAction(ctx, d, apiClient, deploymentUUID, actionID, inputs, reason)
-	if err != nil {
-		return err
+	if !flag {
+		err = runAction(ctx, d, apiClient, deploymentUUID, actionID, inputs, reason)
+		if err != nil {
+			return err
+		}
 	}
 
 	log.Printf("Finished updating vra_deployment %s with inputs", name)
